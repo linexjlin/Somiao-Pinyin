@@ -1,6 +1,7 @@
 
 from __future__ import print_function
 import tensorflow as tf
+import tensorflow_addons as tfa
 from hyperparams import Hyperparams as hp
 
 
@@ -22,17 +23,17 @@ def embed(inputs, vocab_size, num_units, zero_pad=True, scope="embedding", reuse
       A `Tensor` with one more rank than inputs's. The last dimesionality
         should be `num_units`.
     '''
-    with tf.variable_scope(scope, reuse=reuse):
-        lookup_table = tf.get_variable('lookup_table',
+    with tf.compat.v1.variable_scope(scope, reuse=reuse):
+        lookup_table = tf.compat.v1.get_variable('lookup_table',
                                        dtype=tf.float32,
                                        shape=[vocab_size, num_units],
-                                       initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.01))
+                                       initializer=tf.compat.v1.truncated_normal_initializer(mean=0.0, stddev=0.01))
         if zero_pad:
             lookup_table = tf.concat((tf.zeros(shape=[1, num_units]),
                                       lookup_table[1:, :]), 0)
 
 
-    return tf.nn.embedding_lookup(lookup_table, inputs)
+    return tf.nn.embedding_lookup(params=lookup_table, ids=inputs)
 
 
 def normalize(inputs,
@@ -81,14 +82,14 @@ def normalize(inputs,
             elif inputs_rank == 3:
                 inputs = tf.expand_dims(inputs, axis=1)
 
-            outputs = tf.contrib.layers.batch_norm(inputs=inputs,
-                                                   decay=decay,
+            outputs = tf.compat.v1.layers.batch_normalization(inputs=inputs,
+                                                   momentum=0.99,
                                                    center=True,
                                                    scale=True,
-                                                   updates_collections=None,
-                                                   is_training=is_training,
-                                                   scope=scope,
-                                                   zero_debias_moving_mean=True,
+                                                   #updates_collections=None,
+                                                   training=is_training,
+                                                   #scope=scope,
+                                                   #zero_debias_moving_mean=True,
                                                    fused=True,
                                                    reuse=reuse)
             # restore original shape
@@ -97,22 +98,23 @@ def normalize(inputs,
             elif inputs_rank == 3:
                 outputs = tf.squeeze(outputs, axis=1)
         else:  # fallback to naive batch norm
-            outputs = tf.contrib.layers.batch_norm(inputs=inputs,
-                                                   decay=decay,
+            tfa 
+            outputs = tf.compat.v1.layers.batch_normalization(inputs=inputs,
+                                                   momentum=0.99,
                                                    center=True,
                                                    scale=True,
-                                                   updates_collections=None,
-                                                   is_training=is_training,
-                                                   scope=scope,
+                                                  # updates_collections=None,
+                                                   training=is_training,
+                                                   #scope=scope,
                                                    reuse=reuse,
                                                    fused=False)
     elif type in ("ln", "ins"):
         reduction_axis = -1 if type == "ln" else 1
-        with tf.variable_scope(scope, reuse=reuse):
+        with tf.compat.v1.variable_scope(scope, reuse=reuse):
             inputs_shape = inputs.get_shape()
             params_shape = inputs_shape[-1:]
 
-            mean, variance = tf.nn.moments(inputs, [reduction_axis], keep_dims=True)
+            mean, variance = tf.nn.moments(x=inputs, axes=[reduction_axis], keepdims=True)
             beta = tf.Variable(tf.zeros(params_shape))
             gamma = tf.Variable(tf.ones(params_shape))
             normalized = (inputs - mean) / ((variance + epsilon) ** (.5))
@@ -151,11 +153,11 @@ def conv1d(inputs,
     Returns:
       A masked tensor of the same shape and dtypes as `inputs`.
     '''
-    with tf.variable_scope(scope):
+    with tf.compat.v1.variable_scope(scope):
         if padding.lower() == "causal":
             # pre-padding for causality
             pad_len = (size - 1) * rate  # padding size
-            inputs = tf.pad(inputs, [[0, 0], [pad_len, 0], [0, 0]])
+            inputs = tf.pad(tensor=inputs, paddings=[[0, 0], [pad_len, 0], [0, 0]])
             padding = "valid"
 
         if filters is None:
@@ -165,7 +167,7 @@ def conv1d(inputs,
                   "dilation_rate": rate, "padding": padding, "activation": activation_fn,
                   "use_bias": use_bias, "reuse": reuse}
 
-        outputs = tf.layers.conv1d(**params)
+        outputs = tf.compat.v1.layers.conv1d(**params)
     return outputs
 
 
@@ -181,12 +183,12 @@ def conv1d_banks(inputs, num_units=None, K=16, is_training=True, scope="conv1d_b
     Returns:
       A 3d tensor with shape of [N, T, K*Hp.embed_size//2].
     '''
-    with tf.variable_scope(scope, reuse=reuse):
+    with tf.compat.v1.variable_scope(scope, reuse=reuse):
         if num_units is None:
             num_units = hp.embed_size // 2
         outputs = conv1d(inputs, hp.embed_size // 2, 1)  # k=1
         for k in range(2, K + 1):  # k = 2...K
-            with tf.variable_scope("num_{}".format(k)):
+            with tf.compat.v1.variable_scope("num_{}".format(k)):
                 output = conv1d(inputs, num_units, k)
                 outputs = tf.concat((outputs, output), -1)
         outputs = normalize(outputs, type=hp.norm_type, is_training=is_training,
@@ -210,19 +212,19 @@ def gru(inputs, num_units=None, bidirection=False, seqlen=None, scope="gru", reu
       If bidirection is True, a 3d tensor with shape of [N, T, 2*num_units],
         otherwise [N, T, num_units].
     '''
-    with tf.variable_scope(scope, reuse=reuse):
+    with tf.compat.v1.variable_scope(scope, reuse=reuse):
         if num_units is None:
             num_units = inputs.get_shape().as_list[-1]
 
-        cell = tf.contrib.rnn.GRUCell(num_units)
+        cell = tf.compat.v1.nn.rnn_cell.GRUCell(num_units)
         if bidirection:
-            cell_bw = tf.contrib.rnn.GRUCell(num_units)
-            outputs, _ = tf.nn.bidirectional_dynamic_rnn(cell, cell_bw, inputs,
+            cell_bw = tf.compat.v1.nn.rnn_cell.GRUCell(num_units)
+            outputs, _ = tf.compat.v1.nn.bidirectional_dynamic_rnn(cell, cell_bw, inputs,
                                                          sequence_length=seqlen,
                                                          dtype=tf.float32)
             return tf.concat(outputs, 2)
         else:
-            outputs, _ = tf.nn.dynamic_rnn(cell, inputs,
+            outputs, _ = tf.compat.v1.nn.dynamic_rnn(cell, inputs,
                                            sequence_length=seqlen,
                                            dtype=tf.float32)
 
@@ -246,11 +248,11 @@ def prenet(inputs, num_units=None, is_training=True, scope="prenet", reuse=None)
     if num_units is None:
         num_units = [hp.embed_size, hp.embed_size // 2]
 
-    with tf.variable_scope(scope, reuse=reuse):
-        outputs = tf.layers.dense(inputs, units=num_units[0], activation=tf.nn.relu, name="dense1")
-        outputs = tf.layers.dropout(outputs, rate=hp.dropout_rate, training=is_training, name="dropout1")
-        outputs = tf.layers.dense(outputs, units=num_units[1], activation=tf.nn.relu, name="dense2")
-        outputs = tf.layers.dropout(outputs, rate=hp.dropout_rate, training=is_training, name="dropout2")
+    with tf.compat.v1.variable_scope(scope, reuse=reuse):
+        outputs = tf.compat.v1.layers.dense(inputs, units=num_units[0], activation=tf.nn.relu, name="dense1")
+        outputs = tf.compat.v1.layers.dropout(outputs, rate=hp.dropout_rate, training=is_training, name="dropout1")
+        outputs = tf.compat.v1.layers.dense(outputs, units=num_units[1], activation=tf.nn.relu, name="dense2")
+        outputs = tf.compat.v1.layers.dropout(outputs, rate=hp.dropout_rate, training=is_training, name="dropout2")
     return outputs  # (N, ..., num_units[1])
 
 
@@ -269,10 +271,10 @@ def highwaynet(inputs, num_units=None, scope="highwaynet", reuse=None):
     if not num_units:
         num_units = inputs.get_shape()[-1]
 
-    with tf.variable_scope(scope, reuse=reuse):
-        H = tf.layers.dense(inputs, units=num_units, activation=tf.nn.relu, name="dense1")
-        T = tf.layers.dense(inputs, units=num_units, activation=tf.nn.sigmoid,
-                            bias_initializer=tf.constant_initializer(-1.0), name="dense2")
+    with tf.compat.v1.variable_scope(scope, reuse=reuse):
+        H = tf.compat.v1.layers.dense(inputs, units=num_units, activation=tf.nn.relu, name="dense1")
+        T = tf.compat.v1.layers.dense(inputs, units=num_units, activation=tf.nn.sigmoid,
+                            bias_initializer=tf.compat.v1.constant_initializer(-1.0), name="dense2")
         C = 1. - T
         outputs = H * T + inputs * C
 

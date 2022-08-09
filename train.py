@@ -9,7 +9,6 @@ import tensorflow as tf
 from modules import *
 from tqdm import tqdm
 
-
 class Graph():
     '''Builds a model graph'''
 
@@ -19,8 +18,8 @@ class Graph():
             if is_training:
                 self.x, self.y, self.num_batch = get_batch()
             else:  # Evaluation
-                self.x = tf.placeholder(tf.int32, shape=(None, hp.maxlen,))
-                self.y = tf.placeholder(tf.int32, shape=(None, hp.maxlen,))
+                self.x = tf.compat.v1.placeholder(tf.int32, shape=(None, hp.maxlen,))
+                self.y = tf.compat.v1.placeholder(tf.int32, shape=(None, hp.maxlen,))
 
             # Load vocabulary
             pnyn2idx, _, hanzi2idx, _ = load_vocab()
@@ -41,7 +40,7 @@ class Graph():
                                is_training=is_training)  # (N, T, K * E / 2)
 
             ## Max pooling
-            enc = tf.layers.max_pooling1d(enc, 2, 1, padding="same")  # (N, T, K * E / 2)
+            enc = tf.compat.v1.layers.max_pooling1d(enc, 2, 1, padding="same")  # (N, T, K * E / 2)
 
             ## Conv1D projections
             enc = conv1d(enc, hp.embed_size // 2, 5, scope="conv1d_1")  # (N, T, E/2)
@@ -61,25 +60,25 @@ class Graph():
             enc = gru(enc, hp.embed_size // 2, True, scope="gru1")  # (N, T, E)
 
             ## Readout
-            self.outputs = tf.layers.dense(enc, len(hanzi2idx), use_bias=False)
-            self.preds = tf.to_int32(tf.arg_max(self.outputs, dimension=-1))
+            self.outputs = tf.compat.v1.layers.dense(enc, len(hanzi2idx), use_bias=False)
+            self.preds = tf.cast(tf.argmax(self.outputs, axis=-1), dtype=tf.int32)
 
             if is_training:
                 self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.y, logits=self.outputs)
-                self.istarget = tf.to_float(tf.not_equal(self.y, tf.zeros_like(self.y)))  # masking
-                self.hits = tf.to_float(tf.equal(self.preds, self.y)) * self.istarget
-                self.acc = tf.reduce_sum(self.hits) / tf.reduce_sum(self.istarget)
-                self.mean_loss = tf.reduce_sum(self.loss * self.istarget) / tf.reduce_sum(self.istarget)
+                self.istarget = tf.cast(tf.not_equal(self.y, tf.zeros_like(self.y)), dtype=tf.float32)  # masking
+                self.hits = tf.cast(tf.equal(self.preds, self.y), dtype=tf.float32) * self.istarget
+                self.acc = tf.reduce_sum(input_tensor=self.hits) / tf.reduce_sum(input_tensor=self.istarget)
+                self.mean_loss = tf.reduce_sum(input_tensor=self.loss * self.istarget) / tf.reduce_sum(input_tensor=self.istarget)
 
                 # Training Scheme
                 self.global_step = tf.Variable(0, name='global_step', trainable=False)
-                self.optimizer = tf.train.AdamOptimizer(learning_rate=hp.lr)
+                self.optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=hp.lr)
                 self.train_op = self.optimizer.minimize(self.mean_loss, global_step=self.global_step)
 
                 # Summary
-                tf.summary.scalar('mean_loss', self.mean_loss)
-                tf.summary.scalar('acc', self.acc)
-                self.merged = tf.summary.merge_all()
+                tf.compat.v1.summary.scalar('mean_loss', self.mean_loss)
+                tf.compat.v1.summary.scalar('acc', self.acc)
+                self.merged = tf.compat.v1.summary.merge_all()
 
 
 def train():
@@ -87,7 +86,7 @@ def train():
 
     with g.graph.as_default():
         # Training
-        sv = tf.train.Supervisor(logdir=hp.logdir,
+        sv = tf.compat.v1.train.Supervisor(logdir=hp.logdir,
                                  save_model_secs=0)
         with sv.managed_session() as sess:
             for epoch in range(1, hp.num_epochs + 1):

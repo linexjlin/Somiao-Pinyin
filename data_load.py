@@ -104,13 +104,13 @@ def get_batch():
     X, Y = load_train_data()
 
     # Create Queues
-    x, y = tf.train.slice_input_producer([tf.convert_to_tensor(X),
-                                          tf.convert_to_tensor(Y)])
+    x, y = tf.compat.v1.train.slice_input_producer([tf.convert_to_tensor(value=X),
+                                          tf.convert_to_tensor(value=Y)])
 
-    x = tf.decode_raw(x, tf.int32)
-    y = tf.decode_raw(y, tf.int32)
+    x = tf.io.decode_raw(x, tf.int32)
+    y = tf.io.decode_raw(y, tf.int32)
 
-    x, y = tf.train.batch([x, y],
+    x, y = tf.compat.v1.train.batch([x, y],
                           shapes=[(None,), (None,)],
                           num_threads=8,
                           batch_size=hp.batch_size,
